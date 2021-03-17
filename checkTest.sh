@@ -1,0 +1,1 @@
+python checker.py -f out.txt
