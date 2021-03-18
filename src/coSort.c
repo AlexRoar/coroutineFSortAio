@@ -11,7 +11,6 @@
 #include "stackArrays.h"
 #include <fcntl.h>
 #include <string.h>
-#include <errno.h>
 
 #define STACK_SIZE (SIGSTKSZ + 512 * 1024)
 #define MICDIV 1000000
@@ -25,22 +24,19 @@ void processFile(int id);
 
 void printResults();
 
-struct aiocb aiocb;
+size_t fileLength(const char *file);
 
 int main(int argc, const char **argv) {
-//    return 0;
     struct timeval latency = {0, 0};
     CoPlanner_init(&planner, argc, latency);
 
     for (int i = 0; i < argc - 1; i++) {
         CoPlanner_add(&planner, STACK_SIZE, processFile);
         planner.data[i].userData.file = argv[i + 1];
-        planner.data[i].userData.available = 0;
-        planner.data[i].userData.isEof = 0;
-        planner.data[i].userData.offset = 0;
         planner.data[i].userData.count = 0;
         planner.data[i].userData.array = NULL;
     }
+    printf("Starting coroutines...\n");
     CoPlanner_fire(&planner);
 
     printResults();
@@ -79,82 +75,46 @@ int main(int argc, const char **argv) {
     return 0;
 }
 
-void requestChunk(ContextData *nowData, int id){
-    nowData->userData.aiocbp.aio_offset = nowData->userData.offset;
-    int s = aio_read(&(nowData->userData.aiocbp));
-    if (s != 0)
-        handleError("aio_read");
-
-    int err = 0;
-    while ((err = aio_error(&(nowData->userData.aiocbp))) == EINPROGRESS) {
-        printf("Error description is : %s (%d) - %d %d\n", strerror(errno), err, EINPROGRESS, ECANCELED);
-//        CoPlanner_roll(&planner);
-    }
-    size_t size = aio_return(&nowData->userData.aiocbp);
-    if (size == 0)
-        nowData->userData.isEof = 1;
-    else
-        nowData->userData.isEof = 0;
-    nowData->userData.available = size;
-    nowData->userData.offset += size;
-}
-
 void processFile(int id) {
     stack input = {};
-    char* buffer = calloc(BUF_SIZE, 1);
+    char* buffer = calloc(BUF_SIZE + 1, 1);
     Stack_init(&input, 1000);
-
-    memset(&aiocb, 0, sizeof(struct aiocb));
-    aiocb.aio_fildes = open("data/1.txt", O_RDONLY);
-    aiocb.aio_buf = malloc(100);
-    aiocb.aio_nbytes = 100;
-    aiocb.aio_sigevent.sigev_notify = 1;
-
-    if(aio_read(&aiocb) == -1){
-        handleError("NOOO");
-        return;
-    }
-
-    int err,ret;
-    while ((err = aio_error (&aiocb)) == EINPROGRESS);
-    err = aio_error(&aiocb);
-    ret = aio_return(&aiocb);
-
-    printf("OK");
-
     ContextData *nowData = CoPlanner_dataNow(&planner);
-    memset(&(nowData->userData.aiocbp), 0, sizeof(struct aiocb));
-    nowData->userData.aiocbp.aio_fildes = open(nowData->userData.file, O_RDWR );
-    nowData->userData.aiocbp.aio_buf = buffer;
-    nowData->userData.aiocbp.aio_nbytes = BUF_SIZE;
-    nowData->userData.aiocbp.aio_sigevent.sigev_notify = 1;
 
-    if (nowData->userData.aiocbp.aio_fildes == -1){
+    struct aiocb aioreq = {};
+    aioreq.aio_buf = buffer;
+    aioreq.aio_fildes = open(nowData->userData.file, O_RDWR);
+    aioreq.aio_offset = 0;
+    aioreq.aio_nbytes = fileLength(nowData->userData.file);
+    if (aioreq.aio_fildes == -1){
         printf("Unable to open %s\n", nowData->userData.file);
         CoPlanner_finishCoroutine(&planner);
         return;
     }
-    requestChunk(nowData, id);
 
-    int number = 0;
-    while(!nowData->userData.isEof){
-        char* ptrChar = buffer;
-        while(nowData->userData.available != 0){
-            if (*ptrChar == ' ') {
-                Stack_push(&input, number);
-                number = 0;
-                ptrChar++;
-                nowData->userData.available--;
-                continue;
-            }
-            number *= 10;
-            number += *ptrChar - '0';
-            ptrChar++;
-            nowData->userData.available--;
+    if (aio_read(&aioreq) != 0)
+        handleError("aio_read");
+
+    int res = 0;
+    while ((res = aio_return(&aioreq)) == -1)
+        CoPlanner_roll(&planner);
+
+    int number = -1;
+    const char* ptrChar = buffer;
+    for (int i = 0; i < res; i ++){
+        CoPlanner_roll(&planner);
+        if (ptrChar[i] == ' ') {
+            Stack_push(&input, number);
+            number = -1;
+            continue;
         }
-        requestChunk(nowData, id);
+        if (number == -1)
+            number = 0;
+        number *= 10;
+        number += ptrChar[i] - '0';
     }
-    Stack_push(&input, number);
+    if (number != -1)
+        Stack_push(&input, number);
 
     nowData->userData.count = Stack_size(&input);
     nowData->userData.array = input.items;
@@ -162,15 +122,27 @@ void processFile(int id) {
     size_t n = nowData->userData.count;
     int *arr = nowData->userData.array;
     for (size_t i = 0; i < n - 1; i++) {
+        CoPlanner_roll(&planner);
         for (size_t j = 0; j < n - i - 1; j++) {
+            CoPlanner_roll(&planner);
             if (arr[j] > arr[j + 1]) {
+                CoPlanner_roll(&planner);
                 int tmp = arr[j];
                 arr[j] = arr[j + 1];
                 arr[j + 1] = tmp;
             }
         }
     }
+    free(buffer);
     CoPlanner_finishCoroutine(&planner);
+}
+
+size_t fileLength(const char *file) {
+    FILE* fileob = fopen(file, "r");
+    fseek(fileob, 0L, SEEK_END);
+    size_t size = ftell(fileob);
+    fclose(fileob);
+    return size;
 }
 
 Array merge(Array a, Array b) {

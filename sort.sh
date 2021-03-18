@@ -10,4 +10,4 @@ do
   ARGS="$ARGS data/$i.txt"
 done
 echo $ARGS
-build/coSortAio $ARGS
+cmake-build-debug/coSortAio $ARGS

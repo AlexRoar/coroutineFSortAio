@@ -22,18 +22,12 @@
 
 typedef struct {
     const char *file;
-    char isEof;
-    int available;
-    size_t offset;
-
-    struct aiocb aiocbp;
     int *array;
     size_t count;
 } ContextDataUser;
 
 
 typedef struct {
-    int reqNum; // TODO: init
     struct timeval elapsed;
     size_t switched;
     ContextDataUser userData;

@@ -16,7 +16,3 @@ add_executable(coSortAio
         src/stack.h
         src/stackArrays.c
         src/stackArrays.h)
-
-add_executable(coSortAioTest
-        src/tests/coSort.h
-        src/tests/coSort.c)
