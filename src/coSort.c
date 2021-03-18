@@ -9,13 +9,15 @@
 #include "coSort.h"
 #include "stack.h"
 #include "stackArrays.h"
+#include <fcntl.h>
 #include <string.h>
+#include <errno.h>
 
-#define STACK_SIZE (SIGSTKSZ)
+#define STACK_SIZE (SIGSTKSZ + 512 * 1024)
 #define MICDIV 1000000
-static CoPlanner planner;
+#define BUF_SIZE 256
 
-void fileInputNumbers(ContextData *nowData, stack *input, int id);
+static CoPlanner planner;
 
 Array merge(Array a, Array b);
 
@@ -23,34 +25,28 @@ void processFile(int id);
 
 void printResults();
 
-int main(int argc, const char **argv) {
-    if (argc <= 1) {
-        printf("No latency in command line args\n");
-        return (EXIT_FAILURE);
-    }
-    size_t latencyInp = 0;
-    sscanf(argv[1], "%zu", &latencyInp);
-    argv++;
-    argc--;
+struct aiocb aiocb;
 
-    struct timeval latency = {latencyInp / MICDIV, latencyInp % MICDIV};
-    printf("Desired latency: %ld.%06ld\n", (long int) latency.tv_sec, (long int) latency.tv_usec);
+int main(int argc, const char **argv) {
+//    return 0;
+    struct timeval latency = {0, 0};
     CoPlanner_init(&planner, argc, latency);
 
     for (int i = 0; i < argc - 1; i++) {
         CoPlanner_add(&planner, STACK_SIZE, processFile);
-        planner.data[i].userData.file = fopen(argv[i + 1], "rb");
-        if (!planner.data[i].userData.file) {
-            printf("No file %s\n", argv[i + 1]);
-            return (EXIT_FAILURE);
-        }
+        planner.data[i].userData.file = argv[i + 1];
+        planner.data[i].userData.available = 0;
+        planner.data[i].userData.isEof = 0;
+        planner.data[i].userData.offset = 0;
+        planner.data[i].userData.count = 0;
+        planner.data[i].userData.array = NULL;
     }
     CoPlanner_fire(&planner);
 
     printResults();
 
     stackArray mergeStack;
-    StackArray_init(&mergeStack, planner.count + 1);
+    StackArray_init(&mergeStack, (int)planner.count + 1);
 
     for(int i = 0; i < planner.count; i++) {
         Array new = {planner.data[i].userData.array, planner.data[i].userData.count};
@@ -81,6 +77,100 @@ int main(int argc, const char **argv) {
     fclose(outFile);
     CoPlanner_destroy(&planner);
     return 0;
+}
+
+void requestChunk(ContextData *nowData, int id){
+    nowData->userData.aiocbp.aio_offset = nowData->userData.offset;
+    int s = aio_read(&(nowData->userData.aiocbp));
+    if (s != 0)
+        handleError("aio_read");
+
+    int err = 0;
+    while ((err = aio_error(&(nowData->userData.aiocbp))) == EINPROGRESS) {
+        printf("Error description is : %s (%d) - %d %d\n", strerror(errno), err, EINPROGRESS, ECANCELED);
+//        CoPlanner_roll(&planner);
+    }
+    size_t size = aio_return(&nowData->userData.aiocbp);
+    if (size == 0)
+        nowData->userData.isEof = 1;
+    else
+        nowData->userData.isEof = 0;
+    nowData->userData.available = size;
+    nowData->userData.offset += size;
+}
+
+void processFile(int id) {
+    stack input = {};
+    char* buffer = calloc(BUF_SIZE, 1);
+    Stack_init(&input, 1000);
+
+    memset(&aiocb, 0, sizeof(struct aiocb));
+    aiocb.aio_fildes = open("data/1.txt", O_RDONLY);
+    aiocb.aio_buf = malloc(100);
+    aiocb.aio_nbytes = 100;
+    aiocb.aio_sigevent.sigev_notify = 1;
+
+    if(aio_read(&aiocb) == -1){
+        handleError("NOOO");
+        return;
+    }
+
+    int err,ret;
+    while ((err = aio_error (&aiocb)) == EINPROGRESS);
+    err = aio_error(&aiocb);
+    ret = aio_return(&aiocb);
+
+    printf("OK");
+
+    ContextData *nowData = CoPlanner_dataNow(&planner);
+    memset(&(nowData->userData.aiocbp), 0, sizeof(struct aiocb));
+    nowData->userData.aiocbp.aio_fildes = open(nowData->userData.file, O_RDWR );
+    nowData->userData.aiocbp.aio_buf = buffer;
+    nowData->userData.aiocbp.aio_nbytes = BUF_SIZE;
+    nowData->userData.aiocbp.aio_sigevent.sigev_notify = 1;
+
+    if (nowData->userData.aiocbp.aio_fildes == -1){
+        printf("Unable to open %s\n", nowData->userData.file);
+        CoPlanner_finishCoroutine(&planner);
+        return;
+    }
+    requestChunk(nowData, id);
+
+    int number = 0;
+    while(!nowData->userData.isEof){
+        char* ptrChar = buffer;
+        while(nowData->userData.available != 0){
+            if (*ptrChar == ' ') {
+                Stack_push(&input, number);
+                number = 0;
+                ptrChar++;
+                nowData->userData.available--;
+                continue;
+            }
+            number *= 10;
+            number += *ptrChar - '0';
+            ptrChar++;
+            nowData->userData.available--;
+        }
+        requestChunk(nowData, id);
+    }
+    Stack_push(&input, number);
+
+    nowData->userData.count = Stack_size(&input);
+    nowData->userData.array = input.items;
+
+    size_t n = nowData->userData.count;
+    int *arr = nowData->userData.array;
+    for (size_t i = 0; i < n - 1; i++) {
+        for (size_t j = 0; j < n - i - 1; j++) {
+            if (arr[j] > arr[j + 1]) {
+                int tmp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = tmp;
+            }
+        }
+    }
+    CoPlanner_finishCoroutine(&planner);
 }
 
 Array merge(Array a, Array b) {
@@ -121,85 +211,6 @@ Array merge(Array a, Array b) {
     free(b.array);
     Array ret = {new, a.count + b.count};
     return ret;
-}
-
-void fileInputNumbers(ContextData *nowData, stack *input, int id) {
-    fseek(nowData->userData.file, 0L, SEEK_END);
-    CoPlanner_rollIfLatency(&planner);
-    size_t size = ftell(nowData->userData.file);
-    CoPlanner_rollIfLatency(&planner);
-    rewind(nowData->userData.file);
-    CoPlanner_rollIfLatency(&planner);
-
-    char *fileRead = malloc(size + 2);
-
-    if (!fileRead) {
-        printf("Error on malloc in coroutine %d", id);
-        CoPlanner_finishCoroutine(&planner);
-        return;
-    }
-    if (!nowData->userData.file) {
-        printf("Error on file pointer in coroutine %d", id);
-        CoPlanner_finishCoroutine(&planner);
-        free(fileRead);
-        return;
-    }
-
-    CoPlanner_rollIfLatency(&planner);
-    fread(fileRead, 1, size, nowData->userData.file);
-    CoPlanner_rollIfLatency(&planner);
-
-    Stack_init(input, 1000);
-    CoPlanner_rollIfLatency(&planner);
-
-    char *lastPos = fileRead;
-    int number = 0;
-    CoPlanner_rollIfLatency(&planner);
-    while (lastPos < fileRead + size) {
-        CoPlanner_rollIfLatency(&planner);
-        number *= 10;
-        number += *lastPos - '0';
-        lastPos++;
-        if (*lastPos == ' ') {
-            Stack_push(input, number);
-            number = 0;
-            while (*lastPos == ' ') {
-                lastPos++;
-                CoPlanner_rollIfLatency(&planner);
-            }
-        }
-    }
-    Stack_push(input, number);
-
-    nowData->userData.count = Stack_size(input);
-    nowData->userData.array = input->items;
-    CoPlanner_rollIfLatency(&planner);
-    free(fileRead);
-    fclose(nowData->userData.file);
-    CoPlanner_rollIfLatency(&planner);
-}
-
-void processFile(int id) {
-    stack input = {};
-    ContextData *nowData = CoPlanner_dataNow(&planner);
-    CoPlanner_rollIfLatency(&planner);
-    fileInputNumbers(nowData, &input, id);
-    CoPlanner_rollIfLatency(&planner);
-
-    size_t n = nowData->userData.count;
-    int *arr = nowData->userData.array;
-    for (size_t i = 0; i < n - 1; i++) {
-        CoPlanner_rollIfLatency(&planner);
-        for (size_t j = 0; j < n - i - 1; j++) {
-            CoPlanner_rollIfLatency(&planner);
-            if (arr[j] > arr[j + 1]) {
-                int tmp = arr[j];
-                arr[j] = arr[j + 1];
-                arr[j + 1] = tmp;
-            }
-        }
-    }
-    CoPlanner_finishCoroutine(&planner);
 }
 
 void printResults() {
@@ -245,7 +256,6 @@ void CoPlanner_add(CoPlanner *this, size_t stackSize, void *func) {
         handleError("capacity overflow");
     ucontext_t *newCont = this->contexts + this->count;
     char *stack = allocateStack(stackSize);
-    this->data[this->count].initialSp = stack;
     if (getcontext(newCont) == -1)
         handleError("getcontext");
 

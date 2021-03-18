@@ -6,6 +6,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_C_FLAGS_DEBUG "-g3")
 set(CMAKE_C_FLAGS_RELEASE  "-O3")
+set(CMAKE_EXE_LINKER_FLAGS "")
 
 include_directories(.)
 add_executable(coSortAio
@@ -15,3 +16,7 @@ add_executable(coSortAio
         src/stack.h
         src/stackArrays.c
         src/stackArrays.h)
+
+add_executable(coSortAioTest
+        src/tests/coSort.h
+        src/tests/coSort.c)
