@@ -85,18 +85,18 @@ void mergeSortMerge(int arr[], size_t l, size_t m, size_t r) {
 
     for (i = 0; i < n1; i++) {
         L[i] = arr[l + i];
-        CoPlanner_rollIfLatency(&planner);
+        CoPlanner_roll(&planner);
     }
     for (j = 0; j < n2; j++) {
         R[j] = arr[m + 1 + j];
-        CoPlanner_rollIfLatency(&planner);
+        CoPlanner_roll(&planner);
     }
 
     i = 0;
     j = 0;
     k = l;
     while (i < n1 && j < n2) {
-        CoPlanner_rollIfLatency(&planner);
+        CoPlanner_roll(&planner);
         if (L[i] <= R[j]) {
             arr[k] = L[i];
             i++;
@@ -108,18 +108,18 @@ void mergeSortMerge(int arr[], size_t l, size_t m, size_t r) {
     }
 
     while (i < n1) {
-        CoPlanner_rollIfLatency(&planner);
         arr[k] = L[i];
         i++;
         k++;
     }
+    CoPlanner_roll(&planner);
 
     while (j < n2) {
-        CoPlanner_rollIfLatency(&planner);
         arr[k] = R[j];
         j++;
         k++;
     }
+    CoPlanner_roll(&planner);
 }
 
 void mergeSort(int *arr, size_t l, size_t r) {
@@ -169,6 +169,7 @@ void processFile(int id) {
     int number = -1;
     const char* ptrChar = buffer;
     for (int i = 0; i < res; i ++){
+        CoPlanner_roll(&planner);
         if (ptrChar[i] == ' ') {
             Stack_push(&input, number);
             number = -1;
@@ -189,7 +190,7 @@ void processFile(int id) {
     size_t n = nowData->userData.count;
     int *arr = nowData->userData.array;
 
-    mergeSort(arr, 0, n - 1);
+    mergeSort(arr, 0, n);
     CoPlanner_finishCoroutine(&planner);
 }
 
