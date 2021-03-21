@@ -11,6 +11,7 @@
 #include "stackArrays.h"
 #include <fcntl.h>
 #include <string.h>
+#include <errno.h>
 
 #define STACK_SIZE (SIGSTKSZ + 512 * 1024)
 #define MICDIV 1000000
@@ -75,34 +76,99 @@ int main(int argc, const char **argv) {
     return 0;
 }
 
+void mergeSortMerge(int arr[], size_t l, size_t m, size_t r) {
+    size_t i, j, k;
+    size_t n1 = m - l + 1;
+    size_t n2 = r - m;
+
+    int L[n1], R[n2];
+
+    for (i = 0; i < n1; i++) {
+        L[i] = arr[l + i];
+        CoPlanner_rollIfLatency(&planner);
+    }
+    for (j = 0; j < n2; j++) {
+        R[j] = arr[m + 1 + j];
+        CoPlanner_rollIfLatency(&planner);
+    }
+
+    i = 0;
+    j = 0;
+    k = l;
+    while (i < n1 && j < n2) {
+        CoPlanner_rollIfLatency(&planner);
+        if (L[i] <= R[j]) {
+            arr[k] = L[i];
+            i++;
+        } else {
+            arr[k] = R[j];
+            j++;
+        }
+        k++;
+    }
+
+    while (i < n1) {
+        CoPlanner_rollIfLatency(&planner);
+        arr[k] = L[i];
+        i++;
+        k++;
+    }
+
+    while (j < n2) {
+        CoPlanner_rollIfLatency(&planner);
+        arr[k] = R[j];
+        j++;
+        k++;
+    }
+}
+
+void mergeSort(int *arr, size_t l, size_t r) {
+    if (l < r) {
+        CoPlanner_rollIfLatency(&planner);
+        size_t m = l + (r - l) / 2;
+
+        mergeSort(arr, l, m);
+        CoPlanner_rollIfLatency(&planner);
+        mergeSort(arr, m + 1, r);
+        CoPlanner_rollIfLatency(&planner);
+        mergeSortMerge(arr, l, m, r);
+        CoPlanner_rollIfLatency(&planner);
+    }
+}
+
+
 void processFile(int id) {
     stack input = {};
-    char* buffer = calloc(BUF_SIZE + 1, 1);
     Stack_init(&input, 1000);
     ContextData *nowData = CoPlanner_dataNow(&planner);
 
     struct aiocb aioreq = {};
-    aioreq.aio_buf = buffer;
+
     aioreq.aio_fildes = open(nowData->userData.file, O_RDWR);
     aioreq.aio_offset = 0;
     aioreq.aio_nbytes = fileLength(nowData->userData.file);
+    char* buffer = calloc(aioreq.aio_nbytes + 5, 1);
+    aioreq.aio_buf = buffer;
     if (aioreq.aio_fildes == -1){
         printf("Unable to open %s\n", nowData->userData.file);
         CoPlanner_finishCoroutine(&planner);
         return;
     }
 
-    if (aio_read(&aioreq) != 0)
+    if (aio_read(&aioreq) == -1)
         handleError("aio_read");
 
-    int res = 0;
-    while ((res = aio_return(&aioreq)) == -1)
+
+    while (aio_error(&aioreq) == EINPROGRESS)
         CoPlanner_roll(&planner);
 
+    int res  = aio_return(&aioreq);
+    if (res != aioreq.aio_nbytes){
+        handleError("AIO failed");
+    }
     int number = -1;
     const char* ptrChar = buffer;
     for (int i = 0; i < res; i ++){
-        CoPlanner_roll(&planner);
         if (ptrChar[i] == ' ') {
             Stack_push(&input, number);
             number = -1;
@@ -115,30 +181,20 @@ void processFile(int id) {
     }
     if (number != -1)
         Stack_push(&input, number);
+    free(buffer);
 
     nowData->userData.count = Stack_size(&input);
     nowData->userData.array = input.items;
 
     size_t n = nowData->userData.count;
     int *arr = nowData->userData.array;
-    for (size_t i = 0; i < n - 1; i++) {
-        CoPlanner_roll(&planner);
-        for (size_t j = 0; j < n - i - 1; j++) {
-            CoPlanner_roll(&planner);
-            if (arr[j] > arr[j + 1]) {
-                CoPlanner_roll(&planner);
-                int tmp = arr[j];
-                arr[j] = arr[j + 1];
-                arr[j + 1] = tmp;
-            }
-        }
-    }
-    free(buffer);
+
+    mergeSort(arr, 0, n - 1);
     CoPlanner_finishCoroutine(&planner);
 }
 
 size_t fileLength(const char *file) {
-    FILE* fileob = fopen(file, "r");
+    FILE* fileob = fopen(file, "rb");
     fseek(fileob, 0L, SEEK_END);
     size_t size = ftell(fileob);
     fclose(fileob);

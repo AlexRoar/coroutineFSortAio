@@ -9,5 +9,5 @@ cd data || return 1;
 
 for ((i = 1 ; i <= $1 ; i++))
 do
-  python ../generator.py -f $i.txt -c $((i * 1000))
+  python ../generator.py -f $i.txt -c $((i * 100))
 done
