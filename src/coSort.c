@@ -292,6 +292,7 @@ void CoPlanner_add(CoPlanner *this, size_t stackSize, void *func) {
     newCont->uc_stack.ss_size = stackSize;
     newCont->uc_link = &this->main;
 
+    this->data[this->count].stack = stack;
     makecontext(newCont, func, 1, this->count);
     this->count++;
 }
@@ -325,6 +326,9 @@ void CoPlanner_fire(CoPlanner *this) {
     }
     this->finish = getNowFastTime();
     this->now = -1;
+    for (unsigned i = 0; i < this->count; i++) {
+        free(this->data[i].stack);
+    }
 }
 
 bool CoPlanner_roll(CoPlanner *this) {
@@ -417,7 +421,6 @@ struct timeval getNowFastTime() {
 static void *allocateStack(size_t size) {
     void *stack = malloc(size);
     mprotect(stack, size, PROT_READ | PROT_WRITE | PROT_EXEC);
-
     return stack;
 }
 

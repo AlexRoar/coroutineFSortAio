@@ -31,6 +31,7 @@ typedef struct {
     struct timeval elapsed;
     size_t switched;
     ContextDataUser userData;
+    void* stack;
 } ContextData;
 
 
