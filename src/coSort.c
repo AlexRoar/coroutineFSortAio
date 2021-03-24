@@ -61,8 +61,7 @@ int main(int argc, const char **argv) {
 
     FILE* outFile = fopen("out.txt", "w");
     if (!outFile){
-        printf("Can't open out.txt");
-        return (EXIT_FAILURE);
+        handleError("fopen");
     }
     for(int i = 0; i < res.count; i++)
         fprintf(outFile, "%d ", ((int*)res.array)[i]);
@@ -148,6 +147,9 @@ void processFile(int id) {
     aioreq.aio_offset = 0;
     aioreq.aio_nbytes = fileLength(nowData->userData.file);
     char* buffer = calloc(aioreq.aio_nbytes + 5, 1);
+    if (!buffer){
+        handleError("calloc");
+    }
     aioreq.aio_buf = buffer;
     if (aioreq.aio_fildes == -1){
         printf("Unable to open %s\n", nowData->userData.file);
@@ -196,6 +198,9 @@ void processFile(int id) {
 
 size_t fileLength(const char *file) {
     FILE* fileob = fopen(file, "rb");
+    if (!fileob){
+        handleError("fopen");
+    }
     fseek(fileob, 0L, SEEK_END);
     size_t size = ftell(fileob);
     fclose(fileob);
@@ -326,6 +331,7 @@ void CoPlanner_fire(CoPlanner *this) {
     }
     this->finish = getNowFastTime();
     this->now = -1;
+
     for (unsigned i = 0; i < this->count; i++) {
         free(this->data[i].stack);
     }
