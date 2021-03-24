@@ -118,7 +118,6 @@ void mergeSortMerge(int arr[], size_t l, size_t m, size_t r) {
 
 void mergeSort(int *arr, size_t l, size_t r) {
     if (l < r) {
-        CoPlanner_roll(&planner);
         size_t m = l + (r - l) / 2;
 
         mergeSort(arr, l, m);
