@@ -81,7 +81,6 @@ void mergeSortMerge(int arr[], size_t l, size_t m, size_t r) {
     size_t n2 = r - m;
 
     int L[n1], R[n2];
-
     for (i = 0; i < n1; i++) {
         L[i] = arr[l + i];
     }
@@ -93,7 +92,7 @@ void mergeSortMerge(int arr[], size_t l, size_t m, size_t r) {
     j = 0;
     k = l;
     while (i < n1 && j < n2) {
-        CoPlanner_roll(&planner);
+//        CoPlanner_roll(&planner);
         if (L[i] <= R[j]) {
             arr[k] = L[i];
             i++;
