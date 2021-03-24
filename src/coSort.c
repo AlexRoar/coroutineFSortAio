@@ -163,7 +163,6 @@ void processFile(int id) {
     int number = -1;
     const char* ptrChar = buffer;
     for (int i = 0; i < res; i ++){
-        CoPlanner_roll(&planner);
         if (ptrChar[i] == ' ') {
             Stack_push(&input, number);
             number = -1;
