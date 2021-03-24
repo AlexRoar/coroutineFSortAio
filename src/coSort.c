@@ -121,10 +121,9 @@ void mergeSort(int *arr, size_t l, size_t r) {
         size_t m = l + (r - l) / 2;
 
         mergeSort(arr, l, m);
-        CoPlanner_roll(&planner);
         mergeSort(arr, m + 1, r);
-        CoPlanner_roll(&planner);
         mergeSortMerge(arr, l, m, r);
+        CoPlanner_roll(&planner);
     }
 }
 
